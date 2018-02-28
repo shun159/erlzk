@@ -78,9 +78,20 @@
 %% ===================================================================
 %% Public API
 %% ===================================================================
-pack(connect, {ProtocolVersion, LastZxidSeen, Timeout, SessionId, Password}) ->
-    <<ProtocolVersion:32, LastZxidSeen:64, Timeout:32, SessionId:64, (pack_bytes(Password))/binary>>.
 
+-type uint8()  :: 0..16#ff.
+-type uint32() :: 0..16#ffffffff.
+-type uint64() :: 0..16#ffffffffffffffff.
+
+-type int32()  :: -16#80000000..16#7fffffff.
+
+-spec pack(connect,     {ProtocolVersion :: uint32(), LastZxidSeen :: uint64(), TimeOut :: uint32(), SessionId :: uint64(), Password :: iodata()}) -> binary();
+          (set_watches, {LastZxidSeen :: uint64(), DataWatches :: iodata(), ExistWatches :: iodata(), ChildWatches :: iodata()}) -> binary().
+pack(connect, {ProtocolVersion, LastZxidSeen, Timeout, SessionId, Password}) ->
+    <<ProtocolVersion:32, LastZxidSeen:64, Timeout:32, SessionId:64, (pack_str(Password))/binary>>.
+
+-spec pack(add_auth, {Scheme :: iodata(), Auth :: iodata()}, Xid :: int32()) -> binary();
+          (set_watches, {LastZxidSeen :: uint64(), DataWatches :: iodata(), ExistWatches :: iodata(), ChildWatches :: iodata()}, Xid :: int32()) -> binary().
 pack(add_auth, {Scheme, Auth}, Xid) ->
     Packet = <<0:32, (pack_str(Scheme))/binary, (pack_bytes(Auth))/binary>>,
     wrap_packet(?ZK_OP_AUTH, Xid, Packet);
@@ -89,6 +100,18 @@ pack(set_watches, {LastZxidSeen, DataWatches, ExistWatches, ChildWatches}, Xid) 
     Packet = <<LastZxidSeen:64, (pack_watches(DataWatches))/binary, (pack_watches(ExistWatches))/binary, (pack_watches(ChildWatches))/binary>>,
     wrap_packet(?ZK_OP_SET_WATCHES, Xid, Packet).
 
+-spec pack(create,        {Path :: iodata(), Data :: iodata(), Acl :: erlzk:acl(), erlzk:create_mode()}, Xid :: int32(), Chroot :: iodata()) -> binary();
+          (delete,        {Path :: iodata(), Version :: uint32()}, Xid :: int32(), Chroot :: iodata()) -> binary();
+          (exists,        {Path :: iodata(), Watch :: boolean() | uint8()}, Xid :: int32(), Chroot :: iodata()) -> binary();
+          (get_data,      {Path :: iodata(), Watch :: boolean() | uint8()}, Xid :: int32(), Chroot :: iodata()) -> binary();
+          (set_data,      {Path :: iodata(), Data :: iodata(), Version :: uint32()}, Xid :: int32(), Chroot :: iodata()) -> binary();
+          (get_acl,       {Path :: iodata()}, Xid :: int32(), Chroot :: iodata()) -> binary();
+          (set_acl,       {Path :: iodata(), Acl :: erlzk:acl(), Version :: uint32()}, Xid :: int32(), Chroot :: iodata()) -> binary();
+          (sync,          {Path :: iodata()}, Xid :: int32(), Chroot :: iodata()) -> binary();
+          (get_children,  {Path :: iodata(), Watch :: boolean() | uint8()}, Xid :: int32(), Chroot :: iodata()) -> binary();
+          (get_children2, {Path :: iodata(), Watch :: boolean() | uint8()}, Xid :: int32(), Chroot :: iodata()) -> binary();
+          (multi,         Ops :: [erlzk:op()], Xid :: int32(), Chroot :: iodata()) -> binary();
+          (create2,       {Path :: iodata(), Data :: iodata(), Acl :: erlzk:acl(), erlzk:create_mode()}, Xid :: int32(), Chroot :: iodata()) -> binary().
 pack(create, {Path, Data, Acl, CreateMode}, Xid, Chroot) ->
     Packet = <<(pack_str(chroot(Path, Chroot)))/binary, (pack_bytes(Data))/binary, (pack_acl(Acl))/binary, (pack_create_mode(CreateMode))/binary>>,
     wrap_packet(?ZK_OP_CREATE, Xid, Packet);
@@ -153,10 +176,12 @@ pack(create2, {Path, Data, Acl, CreateMode}, Xid, Chroot) ->
     Packet = <<(pack_str(chroot(Path, Chroot)))/binary, (pack_bytes(Data))/binary, (pack_acl(Acl))/binary, (pack_create_mode(CreateMode))/binary>>,
     wrap_packet(?ZK_OP_CREATE2, Xid, Packet).
 
+-spec unpack(<<_:64, _:_*8>>) -> {Xid :: int32(), Zxid :: uint64(), Code :: zk_code(), Body :: binary()}.
 unpack(Packet) ->
     <<Xid:32/signed, Zxid:64, Code:32/signed, Body/binary>> = Packet,
     {Xid, Zxid, code_to_atom(Code), Body}.
 
+-spec unpack(connect, <<_:64, _:_*8>>) -> {ProtocolVersion :: uint32(), TimeOut :: uint32(), SessionId :: uint64(), Password :: binary()}.
 unpack(connect, Packet) ->
     <<ProtocolVersion:32, TimeOut:32, SessionId:64, Left/binary>> = Packet,
     {Password, _}= unpack_bytes(Left),
@@ -216,6 +241,8 @@ unpack(watched_event, Packet, Chroot) ->
 %% ===================================================================
 %% Internal Functions
 %% ===================================================================
+
+-spec chroot(Path :: iodata(), Chroot :: iodata()) -> string().
 chroot(Path, Chroot) when is_binary(Path) ->
     chroot(binary_to_list(Path), Chroot);
 chroot(Path, Chroot) ->
@@ -225,11 +252,13 @@ chroot(Path, Chroot) ->
         _   -> join(Chroot, Path)
     end.
 
+-spec join(iodata(), iodata()) -> string().
 join(Left, "/" ++ Right) ->
     filename:join([Left, Right]);
 join(Left, Right) ->
     filename:join([Left, Right]).
 
+-spec unchroot(string(), iodata()) -> string().
 unchroot(Path, Chroot) ->
     case Chroot of
         "/" -> Path;
@@ -237,21 +266,25 @@ unchroot(Path, Chroot) ->
         _   -> string:substr(Path, string:len(Chroot) + 1)
     end.
 
+-spec pack_str(iodata()) -> binary().
 pack_str(Str) ->
     Length = iolist_size(Str),
     if Length =:= 0 -> <<-1:32/signed>>;
        Length >   0 -> <<Length:32, (iolist_to_binary(Str))/binary>>
     end.
 
+-spec pack_bytes(iodata()) -> binary().
 pack_bytes(Bytes) ->
-    Length = size(Bytes),
+    Length = iolist_size(Bytes),
     if Length =:= 0 -> <<-1:32/signed>>;
-       Length >   0 -> <<Length:32, Bytes/binary>>
+       Length >   0 -> <<Length:32, (iolist_to_binary(Bytes))/binary>>
     end.
 
+-spec pack_acl([erlzk:acl()]) -> binary().
 pack_acl(Acl) ->
     pack_acl(Acl, <<>>, 0).
 
+-spec pack_acl([erlzk:acl()] | [], binary(), non_neg_integer()) -> binary().
 pack_acl([], Packet, Size) ->
     case Size of
         0 -> <<-1:32/signed>>;
@@ -261,6 +294,7 @@ pack_acl([{Perms,Scheme,Id}|Left], Packet, Size) ->
     NewPacket = <<Packet/binary, (pack_perms(Perms)):32, (pack_str(Scheme))/binary, (pack_str(Id))/binary>>,
     pack_acl(Left, NewPacket, Size + 1).
 
+-spec pack_create_mode(persistent | p | ephemeral | persistent_sequential | ephemeral_sequential | es) -> <<_:32>>.
 pack_create_mode(CreateMode) ->
     Flags = case CreateMode of
         persistent -> 0;
@@ -275,9 +309,11 @@ pack_create_mode(CreateMode) ->
     end,
     <<Flags:32>>.
 
+-spec pack_perms(atom()) -> non_neg_integer().
 pack_perms(Perms) ->
     pack_perms(atom_to_list(Perms), 0).
 
+-spec pack_perms(string(), non_neg_integer()) -> non_neg_integer().
 pack_perms([], PermsValue) ->
     PermsValue;
 pack_perms([Perm|Left], PermsValue) ->
@@ -291,9 +327,11 @@ pack_perms([Perm|Left], PermsValue) ->
     end,
     pack_perms(Left, (PermsValue bor Value)).
 
+-spec pack_watches([iodata()]) -> binary().
 pack_watches(Watches) ->
     pack_watches(Watches, <<>>, 0).
 
+-spec pack_watches([iodata()], binary(), non_neg_integer()) -> binary().
 pack_watches([], Packet, Size) ->
     case Size of
         0 -> <<0:32/signed>>;
@@ -303,9 +341,11 @@ pack_watches([Watch|Left], Packet, Size) ->
     NewPacket = <<Packet/binary, (pack_str(Watch))/binary>>,
     pack_watches(Left, NewPacket, Size + 1).
 
+-spec pack_ops([erlzk:op()], iodata()) -> binary().
 pack_ops(Ops, Chroot) ->
     pack_ops(Ops, <<>>, Chroot).
 
+-spec pack_ops([erlzk:op()], binary(), iodata()) -> binary().
 pack_ops([], Packet, _Chroot) ->
     <<Packet/binary, (pack_multi_header(-1, true))/binary>>;
 pack_ops([{create, Path, Data, Acl, CreateMode}|Left], Packet, Chroot) ->
@@ -329,14 +369,17 @@ pack_ops([{check, Path, Version}|Left], Packet, Chroot) ->
     NewPacket = <<Packet/binary, MultiHeaderPacket/binary, OpPacket/binary>>,
     pack_ops(Left, NewPacket, Chroot).
 
+-spec pack_multi_header(int32(), boolean()) -> binary().
 pack_multi_header(Type, true) ->
     <<Type:32/signed, 1:8, -1:32/signed>>;
 pack_multi_header(Type, false) ->
     <<Type:32/signed, 0:8, -1:32/signed>>.
 
+-spec wrap_packet(uint32(), int32(), binary()) -> binary().
 wrap_packet(Type, Xid, Packet) ->
     <<Xid:32/signed, Type:32, Packet/binary>>.
 
+-spec unpack_str(binary()) -> {string(), binary()}.
 unpack_str(Packet) ->
     <<Length:32/signed, Left/binary>> = Packet,
     if Length =< 0  ->
@@ -346,6 +389,7 @@ unpack_str(Packet) ->
         {binary_to_list(Str), LeftData}
     end.
 
+-spec unpack_strs(binary()) -> {[string()], binary()}.
 unpack_strs(Packet) ->
     <<Size:32/signed, Left/binary>> = Packet,
     unpack_strs(Left, [], Size).
@@ -356,6 +400,7 @@ unpack_strs(Packet, Strs, Size) ->
     {Str, Left} = unpack_str(Packet),
     unpack_strs(Left, [Str|Strs], Size - 1).
 
+-spec unpack_bytes(binary()) -> {binary(), binary()}.
 unpack_bytes(Packet) ->
     <<Length:32/signed, Left/binary>> = Packet,
     if Length =< 0  ->
@@ -364,6 +409,7 @@ unpack_bytes(Packet) ->
         split_binary(Left, Length)
     end.
 
+-spec unpack_acl(<<_:32, _:_*8>>) -> {erlzk:acl(), binary()}.
 unpack_acl(Packet) ->
     <<Size:32, Left/binary>> = Packet,
     unpack_acl([], Left, Size).
@@ -377,6 +423,7 @@ unpack_acl(Acl, Packet, Size) ->
     {Id,     Left1} = unpack_str(Left0),
     unpack_acl([{Perms,Scheme,Id}|Acl], Left1, Size - 1).
 
+-spec unpack_perms(non_neg_integer()) -> atom().
 unpack_perms(PermsValue) ->
     unpack_perms(PermsValue, [?ZK_PERM_READ,"r",?ZK_PERM_WRITE,"w",?ZK_PERM_CREATE,"c",?ZK_PERM_DELETE,"d",?ZK_PERM_ADMIN,"r"], "").
 
@@ -390,6 +437,7 @@ unpack_perms(PermsValue, [V,P|Left], Perms) ->
     end,
     unpack_perms(PermsValue, Left, NewPerms).
 
+-spec unpack_stat(<<_:64, _:_*8>>) -> {#stat{}, binary()}.
 unpack_stat(Packet) ->
     <<Czxid:64, Mzxid:64, Ctime:64, Mtime:64, Version:32, Cversion:32, Aversion:32, EphemeralOwner:64, DataLength:32, NumChildren:32, Pzxid:64, Left/binary>> = Packet,
     Stat = #stat{czxid = Czxid,
@@ -405,6 +453,7 @@ unpack_stat(Packet) ->
         pzxid = Pzxid},
     {Stat, Left}.
 
+-spec unpack_ops(binary(), iodata()) -> {zk_code(), [erlzk:op_result()]}.
 unpack_ops(Packet, Chroot) ->
     {Code, Ops} = unpack_ops(ok, [], Packet, Chroot),
     {Code, lists:reverse(Ops)}.
@@ -439,6 +488,9 @@ multi_code(Code, ErrCode) ->
         Code
     end.
 
+-type zk_event_type() :: node_created | node_deleted | node_data_changed | node_children_changed.
+
+-spec event_type_to_atom(1 | 2 | 3 | 4) -> zk_event_type().
 event_type_to_atom(Type) ->
     case Type of
         ?ZK_EVENT_TYPE_NODE_CREATED -> node_created;
@@ -447,6 +499,35 @@ event_type_to_atom(Type) ->
         ?ZK_EVENT_TYPE_NODE_CHILDREN_CHANGED -> node_children_changed
     end.
 
+-type zk_code() ::
+        ok |
+        system_error |
+        runtime_inconsistency |
+        data_inconsistency |
+        connection_loss |
+        marshalling_error |
+        unimplemented |
+        operation_timeout |
+        bad_arguments |
+        unknown_session |
+        api_error |
+        no_node |
+        no_auth |
+        bad_version |
+        no_children_for_ephemerals |
+        node_exists |
+        not_empty |
+        session_expired |
+        invalid_callback |
+        invalid_acl |
+        auth_failed |
+        session_moved |
+        not_read_only |
+        new_config_no_quorum |
+        reconfig_in_progress |
+        ephemeral_on_local_session.
+
+-spec code_to_atom(int32()) -> zk_code().
 code_to_atom(Code) ->
     case Code of
         ?ZK_CODE_OK -> ok;

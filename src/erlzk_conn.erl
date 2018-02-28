@@ -67,75 +67,113 @@
 %% ===================================================================
 %% Public API
 %% ===================================================================
+
+-spec start(erlzk:server_list(), non_neg_integer(), erlzk:options()) ->
+                   {ok, pid()} | ignore |
+                   {error, {already_started, pid()} | term()}.
 start(ServerList, Timeout, Options) ->
     gen_server:start(?MODULE, [ServerList, Timeout, Options], []).
 
+-spec start({local, atom()} | {global, term()} | {via, atom(), term()},
+            erlzk:server_list(), non_neg_integer(), erlzk:options()) ->
+                   {ok, pid()} | ignore |
+                   {error, {already_started, pid()} | term()}.
 start(ServerName, ServerList, Timeout, Options) ->
     gen_server:start(ServerName, ?MODULE, [ServerList, Timeout, Options], []).
 
+-spec start_link(erlzk:server_list(), non_neg_integer(), erlzk:options()) ->
+                        {ok, pid()} | ignore |
+                        {error, {already_started, pid()} | term()}.
 start_link(ServerList, Timeout, Options) ->
     gen_server:start_link(?MODULE, [ServerList, Timeout, Options], []).
 
+-spec start_link({local, atom()} | {global, term()} | {via, atom(), term()},
+                 erlzk:server_list(), non_neg_integer(), erlzk:options()) ->
+                        {ok, pid()} | ignore |
+                        {error, {already_started, pid()} | term()}.
 start_link(ServerName, ServerList, Timeout, Options) ->
     gen_server:start_link(ServerName, ?MODULE, [ServerList, Timeout, Options], []).
 
+-spec stop(pid()) -> ok.
 stop(Pid) ->
     gen_server:call(Pid, stop).
 
+-spec create(pid(), iodata(), iodata(), erlzk:acl(), erlzk:create_mode()) ->
+                    {ok, nonempty_string()} |
+                    {error, term()}.
 create(Pid, Path, Data, Acl, CreateMode) ->
     gen_server:call(Pid, {create, {Path, Data, Acl, CreateMode}}).
 
+-spec delete(pid(), iodata(), integer()) -> ok | {error, term()}.
 delete(Pid, Path, Version) ->
     gen_server:call(Pid, {delete, {Path, Version}}).
 
+-spec exists(pid(), iodata(), boolean()) -> {ok, #stat{}} | {error, term()}.
 exists(Pid, Path, Watch) ->
     gen_server:call(Pid, {exists, {Path, Watch}}).
 
+-spec exists(pid(), iodata(), boolean(), pid()) -> {ok, #stat{}} | {error, atom()}.
 exists(Pid, Path, Watch, Watcher) ->
     gen_server:call(Pid, {exists, {Path, Watch}, Watcher}).
 
+-spec get_data(pid(), iodata(), boolean()) -> {ok, {binary(), #stat{}}}| {error, term()}.
 get_data(Pid, Path, Watch) ->
     gen_server:call(Pid, {get_data, {Path, Watch}}).
 
+-spec get_data(pid(), iodata(), boolean(), pid()) -> {ok, {binary(), #stat{}}}| {error, term()}.
 get_data(Pid, Path, Watch, Watcher) ->
     gen_server:call(Pid, {get_data, {Path, Watch}, Watcher}).
 
+-spec set_data(pid(), iodata(), iodata(), integer()) -> {ok, #stat{}} | {error, atom()}.
 set_data(Pid, Path, Data, Version) ->
     gen_server:call(Pid, {set_data, {Path, Data, Version}}).
 
+-spec get_acl(pid(), iodata()) -> {ok, {erlzk:acl(), #stat{}}} | {error, atom()}.
 get_acl(Pid, Path) ->
     gen_server:call(Pid, {get_acl, {Path}}).
 
+-spec set_acl(pid(), iodata(), erlzk:acl(), integer()) -> {ok, #stat{}} | {error, atom()}.
 set_acl(Pid, Path, Acl, Version) ->
     gen_server:call(Pid, {set_acl, {Path, Acl, Version}}).
 
+-spec get_children(pid(), iodata(), boolean()) -> {ok, [nonempty_string()]} | {error, atom()}.
 get_children(Pid, Path, Watch) ->
     gen_server:call(Pid, {get_children, {Path, Watch}}).
 
+-spec get_children(pid(), iodata(), boolean(), pid()) -> {ok, [nonempty_string()]} | {error, atom()}.
 get_children(Pid, Path, Watch, Watcher) ->
     gen_server:call(Pid, {get_children, {Path, Watch}, Watcher}).
 
+-spec sync(pid(), iodata()) -> {ok, nonempty_string()} | {error, atom()}.
 sync(Pid, Path) ->
     gen_server:call(Pid, {sync, {Path}}).
 
+-spec get_children2(pid(), iodata(), boolean()) -> {ok, {[nonempty_string()], #stat{}}} | {error, atom()}.
 get_children2(Pid, Path, Watch) ->
     gen_server:call(Pid, {get_children2, {Path, Watch}}).
 
+-spec get_children2(pid(), iodata(), boolean(), pid()) -> {ok, {[nonempty_string()], #stat{}}} | {error, atom()}.
 get_children2(Pid, Path, Watch, Watcher) ->
     gen_server:call(Pid, {get_children2, {Path, Watch}, Watcher}).
 
+-spec multi(pid(), [erlzk:op()]) -> {ok, [erlzk:op_result()]} | {error, {atom(), [erlzk:op_result()]}}.
 multi(Pid, Ops) ->
     gen_server:call(Pid, {multi, Ops}).
 
+-spec create2(pid(), iodata(), iodata(), erlzk:acl(), erlzk:create_mode()) ->
+                     {ok, {nonempty_string(), #stat{}}} | {error, atom()}.
 create2(Pid, Path, Data, Acl, CreateMode) ->
     gen_server:call(Pid, {create2, {Path, Data, Acl, CreateMode}}).
 
+-spec add_auth(pid(), nonempty_string(), iodata()) -> ok | {error, atom()}.
 add_auth(Pid, Scheme, Auth) ->
     gen_server:call(Pid, {add_auth, {Scheme, Auth}}).
 
+-spec no_heartbeat(pid()) -> ok.
 no_heartbeat(Pid) ->
     gen_server:cast(Pid, no_heartbeat).
 
+-spec kill_session(pid()) -> ok | {error, term()}.
 kill_session(Pid) ->
     gen_server:call(Pid, kill_session).
 
@@ -179,7 +217,7 @@ init([ServerList, Timeout, Options]) ->
                                            reset_watch=ResetWatch, reconnect_expired=ReconnectExpired,
                                            monitor=Monitor},
                     add_init_auths(AuthData, NewState),
-                    notify_monitor_server_state(Monitor, connected, Host, Port),
+                    _ = notify_monitor_server_state(Monitor, connected, Host, Port),
                     {ok, NewState, PingIntv};
                 {error, Reason} ->
                     error_logger:error_msg("Connect failed: ~p, will try again after ~pms~n", [Reason, ?ZK_RECONNECT_INTERVAL]),
@@ -237,7 +275,7 @@ handle_call(kill_session, _From, State=#state{servers=ServerList, proto_ver=Prot
     case connect(ServerList, ProtoVer, Zxid, Timeout, SessionId, Passwd) of
         {ok, #state{socket=Socket, heartbeat_watcher=HeartbeatWatcher}} ->
             stop_heartbeat(HeartbeatWatcher),
-            inet:setopts(Socket, [{active, false}]),
+            _ = inet:setopts(Socket, [{active, false}]),
             close_connection(Socket),
             {reply, ok, State, PingIntv};
         {error, Reason} ->
@@ -249,7 +287,7 @@ handle_call(_Request, _From, State=#state{ping_interval=PingIntv}) ->
 handle_cast(no_heartbeat, State=#state{host=Host, port=Port, monitor=Monitor, socket=Socket}) ->
     error_logger:error_msg("Connection to ~p:~p is not responding, will close and reconnect~n", [Host, Port]),
     close_connection(Socket, false),
-    notify_monitor_server_state(Monitor, disconnected, Host, Port),
+    _ = notify_monitor_server_state(Monitor, disconnected, Host, Port),
     State1 = notify_callers_closed(State),
     reconnect(State1);
 handle_cast(_Request, State=#state{ping_interval=PingIntv}) ->
@@ -258,7 +296,7 @@ handle_cast(_Request, State=#state{ping_interval=PingIntv}) ->
 handle_info(timeout, State=#state{socket=undefined, ping_interval=PingIntv}) ->
     {noreply, State, PingIntv};
 handle_info(timeout, State=#state{socket=Socket, ping_interval=PingIntv}) ->
-    gen_tcp:send(Socket, <<-2:32, 11:32>>),
+    _ = gen_tcp:send(Socket, <<-2:32, 11:32>>),
     {noreply, State, PingIntv};
 handle_info({tcp, Socket, Packet}, State=#state{chroot=Chroot, socket=Socket, ping_interval=PingIntv,
                                                auths=Auths, reqs=Reqs, watchers=Watchers,
@@ -312,14 +350,14 @@ handle_info({tcp, Socket, Packet}, State=#state{chroot=Chroot, socket=Socket, pi
 handle_info({tcp_closed, Socket}, State=#state{socket=Socket, host=Host, port=Port, monitor=Monitor, heartbeat_watcher=HeartbeatWatcher}) ->
     error_logger:error_msg("Connection to ~p:~p is broken, reconnecting now~n", [Host, Port]),
     stop_heartbeat(HeartbeatWatcher),
-    notify_monitor_server_state(Monitor, disconnected, Host, Port),
+    _ = notify_monitor_server_state(Monitor, disconnected, Host, Port),
     State1 = notify_callers_closed(State),
     reconnect(State1#state{socket=undefined, heartbeat_watcher=undefined});
 handle_info({tcp_error, Socket, Reason}, State=#state{socket=Socket, host=Host, port=Port, monitor=Monitor, heartbeat_watcher=HeartbeatWatcher}) ->
     error_logger:error_msg("Connection to ~p:~p encountered an error, will close and reconnect: ~p~n", [Host, Port, Reason]),
     close_connection(Socket, false),
     stop_heartbeat(HeartbeatWatcher),
-    notify_monitor_server_state(Monitor, disconnected, Host, Port),
+    _ = notify_monitor_server_state(Monitor, disconnected, Host, Port),
     State1 = notify_callers_closed(State),
     reconnect(State1#state{socket=undefined, heartbeat_watcher=undefined});
 handle_info(reconnect, State) ->
@@ -449,10 +487,10 @@ reconnect(State=#state{servers=ServerList, auth_data=AuthData, chroot=Chroot, ho
                 {OldHost, OldPort} -> RenewState;
                 _ -> reset_watch_return_new_state(RenewState, Watchers)
             end,
-            notify_monitor_server_state(Monitor, connected, Host, Port),
+            _ = notify_monitor_server_state(Monitor, connected, Host, Port),
             {noreply, RenewState2, PingIntv};
         {error, {session_expired, Host, Port}} ->
-            notify_monitor_server_state(Monitor, expired, Host, Port),
+            _ = notify_monitor_server_state(Monitor, expired, Host, Port),
             case ReconnectExpired of
                 true ->
                     error_logger:warning_msg("Session expired, creating new connection now"),
@@ -476,7 +514,7 @@ reconnect_after_session_expired(State=#state{servers=ServerList, auth_data=AuthD
                                                                      reset_watch=ResetWatch, monitor=Monitor,
                                                                      heartbeat_watcher=HeartbeatWatcher}, Watchers),
             add_init_auths(AuthData, RenewState),
-            notify_monitor_server_state(Monitor, connected, Host, Port),
+            _ = notify_monitor_server_state(Monitor, connected, Host, Port),
             {noreply, RenewState, PingIntv};
         {error, Reason} ->
             error_logger:error_msg("Connect failed: ~p, will try again after ~pms~n", [Reason, ?ZK_RECONNECT_INTERVAL]),
@@ -487,14 +525,14 @@ reconnect_after_session_expired(State=#state{servers=ServerList, auth_data=AuthD
 add_init_auths([], _State) ->
     ok;
 add_init_auths([AuthData|Left], State) ->
-    handle_call({add_auth, AuthData}, self(), State),
+    _ = handle_call({add_auth, AuthData}, self(), State),
     add_init_auths(Left, State).
 
 reset_watch_return_new_state(State=#state{zxid=Zxid, reset_watch=ResetWatch}, Watchers={DataWatchers, ExistWatchers, ChildWatchers}) ->
     case ResetWatch of
         true  ->
             Args = {Zxid, dict:fetch_keys(DataWatchers), dict:fetch_keys(ExistWatchers), dict:fetch_keys(ChildWatchers)},
-            handle_call({set_watches, Args}, self(), State),
+            _ = handle_call({set_watches, Args}, self(), State),
             State#state{watchers=Watchers};
         false ->
             State#state{watchers={dict:new(), dict:new(), dict:new()}}
@@ -521,7 +559,7 @@ maybe_store_watcher(Code, {Op, _From, Path, Watcher}, Watchers) ->
     end.
 
 notify_callers_closed(State=#state{reqs=Reqs}) ->
-    notify_callers_closed(dict:to_list(Reqs)),
+    _ = notify_callers_closed(dict:to_list(Reqs)),
     State#state{reqs=dict:new()};
 notify_callers_closed([]) ->
     ok;
@@ -584,7 +622,7 @@ close_connection(Socket) ->
 close_connection(undefined, _) ->
     ok;
 close_connection(Socket, true) ->
-    gen_tcp:send(Socket, <<1:32, -11:32>>),
+    _ = gen_tcp:send(Socket, <<1:32, -11:32>>),
     gen_tcp:close(Socket);
 close_connection(Socket, false) ->
     gen_tcp:close(Socket).

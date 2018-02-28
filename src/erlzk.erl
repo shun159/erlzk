@@ -31,8 +31,8 @@
                         {disable_expire_reconnect, boolean()} |
                         {auth_data, [{Scheme::nonempty_string(), Id::binary()}]} |
                         {monitor, pid()}].
--type acl()         :: {[perms()], scheme(), id()}.
--type perms()       :: r | w | c | d | a.
+-type acl()         :: {perms(), scheme(), id()} | [{perms(), scheme(), id()}].
+-type perms()       :: atom().
 -type scheme()      :: nonempty_string().
 -type id()          :: string().
 -type create_mode() :: persistent | p | ephemeral | e | persistent_sequential | ps | ephemeral_sequential | es.
@@ -42,13 +42,23 @@
                        {check, nonempty_string(), integer()}.
 -type op_result()   :: {create, nonempty_string()} | {delete} | {set_data, #stat{}} | {check} | {error, atom()}.
 
+-export_type([server_list/0,
+              options/0,
+              acl/0,
+              perms/0,
+              scheme/0,
+              id/0,
+              op/0,
+              create_mode/0,
+              op_result/0]).
+
 %% ===================================================================
 %% Initiate Functions
 %% ===================================================================
 %% @doc Start the application.
 -spec start() -> ok | {error, term()}.
 start() ->
-    application:load(erlzk),
+    ok = application:load(erlzk),
     erlzk_app:ensure_deps_started(),
     application:start(erlzk).
 
@@ -115,7 +125,6 @@ create(Pid, Path) ->
 %% @see create/5
 -spec create(pid(), iodata(), binary())      -> {ok, Path::nonempty_string()} | {error, atom()};
             (pid(), iodata(), acl())         -> {ok, Path::nonempty_string()} | {error, atom()};
-            (pid(), iodata(), [acl()])       -> {ok, Path::nonempty_string()} | {error, atom()};
             (pid(), iodata(), create_mode()) -> {ok, Path::nonempty_string()} | {error, atom()}.
 create(Pid, Path, Data) when is_binary(Data) ->
     create(Pid, Path, Data, [?ZK_ACL_OPEN_ACL_UNSAFE], persistent);
@@ -127,10 +136,8 @@ create(Pid, Path, CreateMode) when is_atom(CreateMode) ->
 %% @doc Create a node with the given path, return the actual path of the node.
 %% @see create/5
 -spec create(pid(), iodata(), binary(), acl())         -> {ok, Path::nonempty_string()} | {error, atom()};
-            (pid(), iodata(), binary(), [acl()])       -> {ok, Path::nonempty_string()} | {error, atom()};
             (pid(), iodata(), binary(), create_mode()) -> {ok, Path::nonempty_string()} | {error, atom()};
-            (pid(), iodata(), acl(), create_mode())    -> {ok, Path::nonempty_string()} | {error, atom()};
-            (pid(), iodata(), [acl()], create_mode())  -> {ok, Path::nonempty_string()} | {error, atom()}.
+            (pid(), iodata(), acl(), create_mode())    -> {ok, Path::nonempty_string()} | {error, atom()}.
 create(Pid, Path, Data, Acl) when is_binary(Data) andalso (is_tuple(Acl) orelse is_list(Acl)) ->
     create(Pid, Path, Data, Acl, persistent);
 create(Pid, Path, Data, CreateMode) when is_binary(Data) andalso is_atom(CreateMode) ->
@@ -170,8 +177,7 @@ create(Pid, Path, Acl, CreateMode) when (is_tuple(Acl) orelse is_list(Acl)) anda
 %% If the call is successful, will trigger all the watches left on the
 %% node of the given path by {@link exists/3} and {@link get_data/3},
 %% and the watches left on the parent node by {@link get_children/3}.
--spec create(pid(), iodata(), binary(), acl(), create_mode())   -> {ok, Path::nonempty_string()} | {error, atom()};
-            (pid(), iodata(), binary(), [acl()], create_mode()) -> {ok, Path::nonempty_string()} | {error, atom()}.
+-spec create(pid(), iodata(), binary(), acl(), create_mode())   -> {ok, Path::nonempty_string()} | {error, atom()}.
 create(Pid, Path, Data, Acl, CreateMode) when is_binary(Data) andalso is_tuple(Acl) andalso is_atom(CreateMode) ->
     create(Pid, Path, Data, [Acl], CreateMode);
 create(Pid, Path, Data, Acl, CreateMode) when is_binary(Data) andalso is_list(Acl) andalso is_atom(CreateMode) ->
@@ -281,8 +287,7 @@ get_acl(Pid, Path) ->
 
 %% @doc Set the ACL of the node of the given path, return the ACL and the stat of the node.
 %% @see set_acl/4
--spec set_acl(pid(), iodata(), acl())   -> {ok, Stat::#stat{}} | {error, atom()};
-             (pid(), iodata(), [acl()]) -> {ok, Stat::#stat{}} | {error, atom()}.
+-spec set_acl(pid(), iodata(), acl())   -> {ok, Stat::#stat{}} | {error, atom()}.
 set_acl(Pid, Path, Acl) ->
     set_acl(Pid, Path, Acl, -1).
 
@@ -297,8 +302,7 @@ set_acl(Pid, Path, Acl) ->
 %% {error, closed} will be returned during reconnecting.
 %%
 %% If the acl is empty or invalid, will return {error, invalid_acl}.
--spec set_acl(pid(), iodata(), acl(), integer())   -> {ok, Stat::#stat{}} | {error, atom()};
-             (pid(), iodata(), [acl()], integer()) -> {ok, Stat::#stat{}} | {error, atom()}.
+-spec set_acl(pid(), iodata(), acl(), integer())   -> {ok, Stat::#stat{}} | {error, atom()}.
 set_acl(Pid, Path, Acl, Version) when is_tuple(Acl) ->
     set_acl(Pid, Path, [Acl], Version);
 set_acl(Pid, Path, Acl, Version) when is_list(Acl) ->
@@ -379,7 +383,6 @@ create2(Pid, Path) ->
 %% @see create/5
 -spec create2(pid(), iodata(), binary())      -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()};
              (pid(), iodata(), acl())         -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()};
-             (pid(), iodata(), [acl()])       -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()};
              (pid(), iodata(), create_mode()) -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()}.
 create2(Pid, Path, Data) when is_binary(Data) ->
     create2(Pid, Path, Data, [?ZK_ACL_OPEN_ACL_UNSAFE], persistent);
@@ -395,10 +398,8 @@ create2(Pid, Path, CreateMode) when is_atom(CreateMode) ->
 %%
 %% @see create/5
 -spec create2(pid(), iodata(), binary(), acl())         -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()};
-             (pid(), iodata(), binary(), [acl()])       -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()};
              (pid(), iodata(), binary(), create_mode()) -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()};
-             (pid(), iodata(), acl(), create_mode())    -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()};
-             (pid(), iodata(), [acl()], create_mode())  -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()}.
+             (pid(), iodata(), acl(), create_mode())    -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()}.
 create2(Pid, Path, Data, Acl) when is_binary(Data) andalso (is_tuple(Acl) orelse is_list(Acl)) ->
     create2(Pid, Path, Data, Acl, persistent);
 create2(Pid, Path, Data, CreateMode) when is_binary(Data) andalso is_atom(CreateMode) ->
@@ -412,8 +413,7 @@ create2(Pid, Path, Acl, CreateMode) when (is_tuple(Acl) orelse is_list(Acl)) and
 %% v3.4.5 or current developing v3.5.0 (ZooKeeper added it again).
 %%
 %% @see create/5
--spec create2(pid(), iodata(), binary(), acl(), create_mode())   -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()};
-             (pid(), iodata(), binary(), [acl()], create_mode()) -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()}.
+-spec create2(pid(), iodata(), binary(), acl(), create_mode())   -> {ok, {Path::nonempty_string(), Stat::#stat{}}} | {error, atom()}.
 create2(Pid, Path, Data, Acl, CreateMode) when is_binary(Data) andalso is_tuple(Acl) andalso is_atom(CreateMode) ->
     create2(Pid, Path, Data, [Acl], CreateMode);
 create2(Pid, Path, Data, Acl, CreateMode) when is_binary(Data) andalso is_list(Acl) andalso is_atom(CreateMode) ->
